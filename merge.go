@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
 	unicommon "github.com/timdrysdale/unipdf/v3/common"
@@ -9,8 +8,6 @@ import (
 	pdf "github.com/timdrysdale/unipdf/v3/model"
 	pdfextract "github.com/georgekinnear/gradex-extract/pdfextract"
 )
-
-//From https://github.com/unidoc/unipdf-examples/blob/master/pages/pdf_merge_advanced.go
 
 func getDict(obj core.PdfObject) *core.PdfObjectDictionary {
 	if obj == nil {
@@ -231,7 +228,7 @@ func mergePdf(inputPaths []string, outputPath string) error {
 	
 		// indentify which fields have been filled
 		form_values := pdfextract.ReadFormFromPDF(inputPath, false)
-		pdfextract.PrettyPrintStruct(form_values)
+		//pdfextract.PrettyPrintStruct(form_values)
 		this_marker_marked := make(map[int]bool)
 		marker_initials := "doc"
 		for _, field := range form_values {
@@ -275,17 +272,13 @@ func mergePdf(inputPaths []string, outputPath string) error {
 		for i := 0; i < numPages; i++ {
 			pageNum := i + 1
 			
-			fmt.Println(docNum, inputPath, numPages, final_doc)
-			
 			// Skip this page if this marker has not marked it - UNLESS they are the last marker and this page has gone unmarked
 			if docNum != final_doc && !this_marker_marked[pageNum] {
 				continue
 			}
 			if docNum == final_doc && !this_marker_marked[pageNum] && page_marked[pageNum] {
-				fmt.Println("SKIPPING", docNum, pageNum, this_marker_marked, page_marked)
 				continue
 			}
-			fmt.Println(inputPath, "Marker", marker_initials, "page", pageNum)
 
 			page, err := pdfReader.GetPage(pageNum)
 			if err != nil {
@@ -303,7 +296,7 @@ func mergePdf(inputPaths []string, outputPath string) error {
 			if forms == nil {
 				forms = pdfReader.AcroForm
 			} else {
-				forms, err = mergeForms(forms, pdfReader.AcroForm, marker_initials)
+				forms, err = mergeForms(forms, pdfReader.AcroForm, "marker_"+marker_initials)
 				if err != nil {
 					return err
 				}

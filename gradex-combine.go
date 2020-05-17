@@ -10,13 +10,19 @@ import (
 	"time"
 	"os"
 	"fmt"
-	//"regexp"
+	"regexp"
+	"path/filepath"
+	"strings"
+	"github.com/gocarina/gocsv"
 )
 
 func main() {
 
 	var inputDir string
 	flag.StringVar(&inputDir, "inputdir", "./", "path of the folder containing the PDF files to be processed (will also check sub-folders with 'marker' in their name")
+	
+	var outputDir string
+	flag.StringVar(&outputDir, "outputdir", "scripts_combined", "path of the folder to receive the combined PDFs")
 	
 	var markerOrder string
 	flag.StringVar(&markerOrder, "markerorder", "", "comma separated list of marker initials, specifying the order to show them in the PDF (defaults to blank)")
@@ -29,12 +35,20 @@ func main() {
 		fmt.Println(err)
 		os.Exit(1)
 	}
+	err := ensureDir(outputDir)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
 	
 	report_time := time.Now().Format("2006-01-02-15-04-05")
+	fmt.Println(report_time)
+	csv_path := fmt.Sprintf("%s/00_combine-marks-%s.csv", inputDir, report_time)
 
 	// Look at all PDFs in inputDir (including subdirectories)
 	fmt.Println("Looking at input directory: ",inputDir)
 	
+	/*
 	// Read the raw form values, and save them as a csv
 	csv_path := fmt.Sprintf("%s/01_raw_form_values-%s.csv", inputDir, report_time)
 	form_values := pdfextract.ReadFormsInDirectory(inputDir, csv_path)
@@ -48,12 +62,75 @@ func main() {
 		fmt.Println("Error - found scripts from multiple courses:",coursecode)
 		os.Exit(1)
 	}
+	*/
 
-	// Now summarise the marks and perform validation checks
-	//csv_path = fmt.Sprintf("%s/00_marks_summary-%s.csv", inputDir, report_time)
-	//pdf.ValidateMarking(form_values, parts, csv_path)
+	// Assemble a list of scripts, grouped by student
+	filename_examno, err := regexp.Compile("(B[0-9]{6})-.*.pdf")
+	
+	scripts := make(map[string][]string)
+	filepath.Walk(inputDir, func(path string, f os.FileInfo, _ error) error {
+		// Avoid the moderation folder for now
+		if f.IsDir() && strings.Contains(f.Name(), "Moderation") {
+			return filepath.SkipDir
+		}
+		if f.IsDir() && strings.Contains(f.Name(), "scripts_combined") {
+			return filepath.SkipDir
+		}
+		if !f.IsDir() {
+			if filepath.Ext(f.Name()) != ".pdf" {
+				return nil
+			}
+			proper_filename := filename_examno.MatchString(f.Name())
+			if proper_filename {
+				extracted_examno := filename_examno.FindStringSubmatch(f.Name())[1]
+				if scripts[extracted_examno] == nil {
+					scripts[extracted_examno] = []string{path}
+				} else {
+					scripts[extracted_examno] = append(scripts[extracted_examno], path)
+				}
+			} else {
+				fmt.Println(" - Malformed filename: ", path)
+			}
+		}
+		return nil
+	})
+	pdfextract.PrettyPrintStruct(scripts)
+	
+	
+	
+	form_vals_combined := []pdfextract.FormValues{}
+	
+	for ExamNo, script_set := range scripts {
+		
+		fmt.Println(ExamNo)
+		output_file := outputDir+"/"+ExamNo+"-combinedmarks.pdf"
+		
+		// Merge the PDFs of this script
+		err = mergePdf(script_set, output_file)
+		if err != nil {
+			fmt.Println(err)
+		}
+		
+		// Read the details from the merged PDF and store them
+		vals_on_new_form := pdfextract.ReadFormFromPDF(output_file, false)
+		form_vals_combined = append(form_vals_combined, vals_on_new_form...)
 
-	err := mergePdf([]string{"test/marker1/B078068-mark.pdf", "test/marker2/B078068-mark.pdf"}, "output.pdf")
+	}
+	
+	// Put out a CSV summarising all the form values in the combined PDFs
+	file, err := os.OpenFile(csv_path, os.O_RDWR|os.O_CREATE, os.ModePerm)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer file.Close()
+	gocsv.MarshalFile(form_vals_combined, file)
+	
+	os.Exit(1)
+
+	
+	
+	err = mergePdf([]string{"test/marker1/B078068-mark.pdf", "test/marker2/B078068-mark.pdf"}, "output.pdf")
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -101,3 +178,18 @@ func assemblePDFsInDirectory(inputDir string) {
 	
 }
 */
+
+// pr-pal @ https://stackoverflow.com/questions/37932551/mkdir-if-not-exists-using-golang
+func ensureDir(dirName string) error {
+
+	err := os.Mkdir(dirName, 0700) //probably umasked with 22 not 02
+
+	os.Chmod(dirName, 0700)
+
+	if err == nil || os.IsExist(err) {
+		return nil
+	} else {
+		return err
+	}
+
+}
